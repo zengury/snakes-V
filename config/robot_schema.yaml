@@ -1,0 +1,139 @@
+robot:
+  type: "unitree_g1_29dof"
+
+  motor_index_map:
+    left_hip_yaw: 0
+    left_hip_roll: 1
+    left_hip_pitch: 2
+    left_knee: 3
+    left_ankle_pitch: 4
+    left_ankle_roll: 5
+    right_hip_yaw: 6
+    right_hip_roll: 7
+    right_hip_pitch: 8
+    right_knee: 9
+    right_ankle_pitch: 10
+    right_ankle_roll: 11
+    waist_yaw: 12
+    waist_roll: 13
+    waist_pitch: 14
+    left_shoulder_pitch: 15
+    left_shoulder_roll: 16
+    left_shoulder_yaw: 17
+    left_elbow: 18
+    right_shoulder_pitch: 19
+    right_shoulder_roll: 20
+    right_shoulder_yaw: 21
+    right_elbow: 22
+
+  thresholds:
+    temp_warning: 50.0
+    temp_critical: 70.0
+    torque_warning: 40.0
+    torque_critical: 60.0
+
+  lifecycle:
+    commissioning:
+      default_target_score: 80
+      max_experiments: 50
+      safety_bounds:
+        kp_range: [1.0, 50.0]
+        ki_range: [0.0, 10.0]
+        kd_range: [0.0, 20.0]
+        max_temp_rise_per_exp: 5.0
+      step_test:
+        default_setpoint_rad: 0.3
+        duration_s: 2.0
+        sample_rate_hz: 100
+        cooldown_s: 3.0
+
+    idle_tuning:
+      trigger:
+        idle_timeout_sec: 30
+        min_battery_soc: 20
+        max_joint_temp: 60
+      safety:
+        max_param_change_pct: 0.15
+        anomaly_threshold_protect: 0.7
+      predictor:
+        feature_dim: 19
+        chain_feature_per_joint: 10
+        min_training_samples: 10
+        chain_min_training_samples: 30
+        retrain_every_n_sessions: 20
+      scheduling:
+        min_interval_s: 60
+        max_sessions_per_day: 20
+        cooldown_after_rollback_s: 300
+
+    runtime:
+      fast_adjustment:
+        enabled: true
+        max_change_pct: 0.05
+        trigger_anomaly_score: 0.3
+      ring_buffer:
+        duration_s: 30
+        sample_rate_hz: 50
+      semantic_engine:
+        eval_interval_s: 1.0
+
+  kinematic_chains:
+    left_leg: [left_hip_roll, left_hip_pitch, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll]
+    right_leg: [right_hip_roll, right_hip_pitch, right_hip_yaw, right_knee, right_ankle_pitch, right_ankle_roll]
+    waist: [waist_yaw, waist_roll, waist_pitch]
+    left_arm: [left_shoulder_pitch, left_shoulder_roll, left_shoulder_yaw, left_elbow]
+    right_arm: [right_shoulder_pitch, right_shoulder_roll, right_shoulder_yaw, right_elbow]
+
+  chain_tuning_order:
+    left_leg:  [left_hip_yaw, left_hip_roll, left_hip_pitch, left_knee, left_ankle_pitch, left_ankle_roll]
+    right_leg: [right_hip_yaw, right_hip_roll, right_hip_pitch, right_knee, right_ankle_pitch, right_ankle_roll]
+    waist:     [waist_yaw, waist_roll, waist_pitch]
+    left_arm:  [left_shoulder_pitch, left_shoulder_roll, left_shoulder_yaw, left_elbow]
+    right_arm: [right_shoulder_pitch, right_shoulder_roll, right_shoulder_yaw, right_elbow]
+
+  validation_actions:
+    single_leg:
+      action: "stand_single_leg"
+      duration_s: 3.0
+      metrics: [stability_score, torque_efficiency]
+      pass_threshold: 70.0
+    bipedal_squat:
+      action: "squat_and_rise"
+      duration_s: 5.0
+      metrics: [symmetry_score, overshoot_pct, energy_j]
+      pass_threshold: 70.0
+    walk_3_steps:
+      action: "walk_forward_3"
+      duration_s: 8.0
+      metrics: [tracking_error_mean, stability_margin]
+      pass_threshold: 65.0
+    arm_reach:
+      action: "end_effector_reach"
+      duration_s: 3.0
+      metrics: [position_error_mm, settling_time_s]
+      pass_threshold: 75.0
+    full_body_pose:
+      action: "standard_pose_sequence"
+      duration_s: 15.0
+      metrics: [overall_quality_score, symmetry_score, energy_j]
+      pass_threshold: 60.0
+
+  coordination_rules:
+    - if: "left_knee.kp decreases"
+      then: "left_hip_yaw.kd increase 5%"
+    - if: "ankle.kd increases significantly"
+      then: "same_leg_knee.kp review recommended"
+
+  mock_physics:
+    default:
+      inertia: 0.15
+      friction: 0.8
+      gravity_comp: 0.0
+      noise_std: 0.002
+    overrides:
+      left_knee: {inertia: 0.20, gravity_comp: 2.5}
+      right_knee: {inertia: 0.20, gravity_comp: 2.5}
+      left_ankle_pitch: {inertia: 0.08, friction: 0.5}
+      right_ankle_pitch: {inertia: 0.08, friction: 0.5}
+      left_hip_pitch: {inertia: 0.25, gravity_comp: 3.0}
+      right_hip_pitch: {inertia: 0.25, gravity_comp: 3.0}

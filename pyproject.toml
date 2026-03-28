@@ -18,6 +18,7 @@ dependencies = [
     "anthropic>=0.30",
     "fastmcp>=0.4",
     "gitpython>=3.1",
+    "optuna>=3.0",
 ]
 
 [project.optional-dependencies]

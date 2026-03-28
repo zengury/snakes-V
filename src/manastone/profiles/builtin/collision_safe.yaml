@@ -1,0 +1,30 @@
+profile_id: collision_safe
+version: "1.0"
+description: "Collision safe tuning - smooth low-torque motion for human interaction"
+compatible_joint_groups: ["arm"]
+compatible_tasks: ["hri", "collaborative"]
+llm_prompt: |
+  You are a PID tuning expert optimizing for collision safety.
+  Joint: {joint_name} (group: {group})
+  Safety bounds: Kp [{kp_min}, {kp_max}], Ki [{ki_min}, {ki_max}], Kd [{kd_min}, {kd_max}]
+
+  Recent results (last 15):
+  {recent_results}
+
+  Chain context:
+  {chain_context}
+
+  Minimize torque spikes for safe human interaction. Output params.yaml:
+scorer:
+  class: manastone.profiles.scorers.torque_tracking.TorqueScorer
+  params:
+    max_torque_nm: 30.0
+experiment_generator:
+  class: manastone.profiles.generators.step.StepGenerator
+  params:
+    setpoint: 0.2
+    duration_s: 3.0
+    sample_rate_hz: 100.0
+safety:
+  max_param_change_pct: 0.10
+features: [temp_c, torque_nm, velocity_rad_s, tracking_error_mean, anomaly_score]

@@ -1,0 +1,29 @@
+profile_id: high_speed
+version: "1.0"
+description: "High speed tuning - fast response with controlled overshoot"
+compatible_joint_groups: ["arm"]
+compatible_tasks: ["manipulation", "fast_motion"]
+llm_prompt: |
+  You are a PID tuning expert optimizing for high-speed response.
+  Joint: {joint_name} (group: {group})
+  Safety bounds: Kp [{kp_min}, {kp_max}], Ki [{ki_min}, {ki_max}], Kd [{kd_min}, {kd_max}]
+
+  Recent results (last 15):
+  {recent_results}
+
+  Chain context:
+  {chain_context}
+
+  Optimize for fast rise time. Accept up to 10% overshoot. Output params.yaml:
+scorer:
+  class: manastone.profiles.scorers.step_response.StepResponseScorer
+  params: {}
+experiment_generator:
+  class: manastone.profiles.generators.step.StepGenerator
+  params:
+    setpoint: 0.5
+    duration_s: 1.5
+    sample_rate_hz: 100.0
+safety:
+  max_param_change_pct: 0.20
+features: [temp_c, torque_nm, velocity_rad_s, tracking_error_mean, anomaly_score]

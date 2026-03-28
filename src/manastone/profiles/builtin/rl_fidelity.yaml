@@ -1,0 +1,30 @@
+profile_id: rl_fidelity
+version: "1.0"
+description: "RL fidelity tuning - sinusoidal tracking for sim-to-real transfer"
+compatible_joint_groups: ["leg", "arm"]
+compatible_tasks: ["rl_transfer", "sim2real"]
+llm_prompt: |
+  You are a PID tuning expert optimizing for RL sim-to-real transfer.
+  Joint: {joint_name} (group: {group})
+  Safety bounds: Kp [{kp_min}, {kp_max}], Ki [{ki_min}, {ki_max}], Kd [{kd_min}, {kd_max}]
+
+  Recent results (last 15):
+  {recent_results}
+
+  Chain context:
+  {chain_context}
+
+  Focus on consistent sinusoidal tracking. Output params.yaml:
+scorer:
+  class: manastone.profiles.scorers.step_response.StepResponseScorer
+  params: {}
+experiment_generator:
+  class: manastone.profiles.generators.sinusoidal.SinusoidalGenerator
+  params:
+    amplitude: 0.17
+    frequencies: [0.5, 1.0, 2.0]
+    duration_s: 5.0
+    sample_rate_hz: 100.0
+safety:
+  max_param_change_pct: 0.10
+features: [temp_c, torque_nm, velocity_rad_s, tracking_error_mean, anomaly_score]

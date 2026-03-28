@@ -1,0 +1,35 @@
+profile_id: classic_precision
+version: "1.0"
+description: "Classic precision tuning - step response overshoot/settling"
+compatible_joint_groups: []
+compatible_tasks: []
+llm_prompt: |
+  You are a PID tuning expert for the Unitree G1 humanoid robot.
+  Joint: {joint_name} (group: {group})
+  Safety bounds: Kp [{kp_min}, {kp_max}], Ki [{ki_min}, {ki_max}], Kd [{kd_min}, {kd_max}]
+
+  Recent results (last 15):
+  {recent_results}
+
+  Chain context (already tuned joints):
+  {chain_context}
+
+  Rules:
+  1. Output ONLY valid params.yaml content
+  2. Include a '# hypothesis: ...' comment explaining your reasoning
+  3. Prefer small changes (10-20% per iteration)
+  4. If last experiment was discard, try a different direction
+
+  Output complete params.yaml:
+scorer:
+  class: manastone.profiles.scorers.step_response.StepResponseScorer
+  params: {}
+experiment_generator:
+  class: manastone.profiles.generators.step.StepGenerator
+  params:
+    setpoint: 0.3
+    duration_s: 2.0
+    sample_rate_hz: 100.0
+safety:
+  max_param_change_pct: 0.15
+features: [temp_c, torque_nm, velocity_rad_s, tracking_error_mean, anomaly_score]

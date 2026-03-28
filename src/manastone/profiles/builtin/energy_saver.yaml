@@ -1,0 +1,30 @@
+profile_id: energy_saver
+version: "1.0"
+description: "Energy saver tuning - minimize energy consumption while maintaining stability"
+compatible_joint_groups: []
+compatible_tasks: ["low_power", "endurance"]
+llm_prompt: |
+  You are a PID tuning expert optimizing for energy efficiency.
+  Joint: {joint_name} (group: {group})
+  Safety bounds: Kp [{kp_min}, {kp_max}], Ki [{ki_min}, {ki_max}], Kd [{kd_min}, {kd_max}]
+
+  Recent results (last 15):
+  {recent_results}
+
+  Chain context:
+  {chain_context}
+
+  Minimize energy while maintaining adequate tracking. Output params.yaml:
+scorer:
+  class: manastone.profiles.scorers.energy.EnergyScorer
+  params:
+    energy_budget_j: 10.0
+experiment_generator:
+  class: manastone.profiles.generators.step.StepGenerator
+  params:
+    setpoint: 0.3
+    duration_s: 2.0
+    sample_rate_hz: 100.0
+safety:
+  max_param_change_pct: 0.15
+features: [temp_c, torque_nm, velocity_rad_s, tracking_error_mean, anomaly_score]

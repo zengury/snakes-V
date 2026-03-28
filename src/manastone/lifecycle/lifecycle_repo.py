@@ -6,14 +6,22 @@ Every tuning experiment is a Git commit. Rollback = git reset --hard.
 
 Crash recovery: EXPERIMENT_IN_PROGRESS sentinel file is written before
 each commit and removed after. On init, stale sentinel triggers rollback.
+
+LifecycleRepository (Phase 5) — subprocess-based variant that does not
+require the gitpython library; works even when git is unavailable.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+import yaml
+from manastone.common.models import PIDParams
 
 
 _SENTINEL = "EXPERIMENT_IN_PROGRESS"
@@ -100,3 +108,94 @@ class LifecycleRepo:
     @property
     def path(self) -> Path:
         return self._repo_dir
+
+
+# ---------------------------------------------------------------------------
+# Phase-5: LifecycleRepository
+# ---------------------------------------------------------------------------
+
+
+class LifecycleRepository:
+    """Per-robot Git repo with per-profile branches (subprocess-based)."""
+
+    def __init__(self, robot_id: str, base_dir: Path = Path("storage/workspaces")):
+        self.robot_id = robot_id
+        self.repo_path = Path(base_dir) / robot_id
+        self._git_available = bool(shutil.which("git"))
+
+    def init(self) -> None:
+        self.repo_path.mkdir(parents=True, exist_ok=True)
+        if not self._git_available:
+            return
+        if not (self.repo_path / ".git").exists():
+            subprocess.run(["git", "init"], cwd=self.repo_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "--allow-empty", "-m", "init"],
+                cwd=self.repo_path, check=True, capture_output=True,
+            )
+
+    def create_profile_branch(self, profile_id: str) -> Path:
+        """Create branch {robot_id}/{profile_id} and return profile work dir."""
+        profile_dir = self.repo_path / profile_id
+        profile_dir.mkdir(parents=True, exist_ok=True)
+
+        if self._git_available and (self.repo_path / ".git").exists():
+            branch = f"{self.robot_id}/{profile_id}"
+            result = subprocess.run(
+                ["git", "branch", "--list", branch],
+                cwd=self.repo_path, capture_output=True, text=True,
+            )
+            if not result.stdout.strip():
+                subprocess.run(
+                    ["git", "checkout", "-b", branch],
+                    cwd=self.repo_path, capture_output=True,
+                )
+            else:
+                subprocess.run(
+                    ["git", "checkout", branch],
+                    cwd=self.repo_path, capture_output=True,
+                )
+        return profile_dir
+
+    def switch_profile(self, profile_id: str) -> Path:
+        branch = f"{self.robot_id}/{profile_id}"
+        if self._git_available and (self.repo_path / ".git").exists():
+            subprocess.run(["git", "checkout", branch], cwd=self.repo_path, capture_output=True)
+        return self.repo_path / profile_id
+
+    def get_best_params(self, profile_id: str) -> Optional[Dict[str, PIDParams]]:
+        """Read best_params.yaml from profile dir."""
+        path = self.repo_path / profile_id / "best_params.yaml"
+        if path.exists():
+            raw = yaml.safe_load(path.read_text())
+            if isinstance(raw, dict):
+                return {k: PIDParams(**v) for k, v in raw.items() if isinstance(v, dict)}
+        return None
+
+    def write_best_params(self, profile_id: str, params: Dict[str, PIDParams]) -> None:
+        profile_dir = self.repo_path / profile_id
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        path = profile_dir / "best_params.yaml"
+        path.write_text(yaml.dump({k: v.model_dump() for k, v in params.items()}))
+
+    def tag_version(self, profile_id: str, version: str, label: str = "stable") -> None:
+        if self._git_available and (self.repo_path / ".git").exists():
+            tag = f"{profile_id}/v{version}-{label}"
+            subprocess.run(["git", "tag", tag], cwd=self.repo_path, capture_output=True)
+
+    def list_profiles(self) -> List[str]:
+        if not self._git_available or not (self.repo_path / ".git").exists():
+            # Fallback: list directories
+            if not self.repo_path.exists():
+                return []
+            return [d.name for d in self.repo_path.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        result = subprocess.run(
+            ["git", "branch", "--list", f"{self.robot_id}/*"],
+            cwd=self.repo_path, capture_output=True, text=True,
+        )
+        branches = []
+        for b in result.stdout.strip().split("\n"):
+            b = b.strip().lstrip("* ")
+            if "/" in b:
+                branches.append(b.split("/", 1)[-1])
+        return [b for b in branches if b]

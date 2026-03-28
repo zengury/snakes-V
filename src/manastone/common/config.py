@@ -127,6 +127,13 @@ class ManaConfig:
     def get_max_tokens_per_session(self) -> int:
         return int(os.environ.get("MANASTONE_MAX_TOKENS", "100000"))
 
+    def create_param_writer(self):
+        from manastone.idle_tuning.executor.param_writer import MockParamWriter, RealParamWriter
+
+        if self.is_mock_mode():
+            return MockParamWriter()
+        return RealParamWriter(self.get_rosbridge_url())
+
 
 # Convenience shortcuts used throughout the codebase.
 def is_mock_mode() -> bool:

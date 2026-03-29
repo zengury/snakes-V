@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, Optional
 
 import yaml
 
 from manastone.common.models import ChainContext, PIDParams
+
+logger = logging.getLogger(__name__)
 
 
 class SkillRunner:
@@ -56,7 +59,13 @@ class SkillRunner:
                 user=user_msg,
             )
             return self._parse_yaml_output(response, chain_context)
-        except Exception:
+        except Exception as exc:
+            # M4 fix: log the LLM failure so operators can trace why no
+            # parameters were changed (silent fallback breaks audit trail).
+            logger.warning(
+                "Skill '%s' LLM call failed, using conservative no-change fallback: %s",
+                skill_name, exc,
+            )
             return self._conservative_fallback(chain_context)
 
     def _format_context(self, ctx: ChainContext, xgb_prior, confidence) -> str:
@@ -117,7 +126,13 @@ class SkillRunner:
                 else:
                     result[jc.joint_name] = jc.last_params or PIDParams(kp=1.0, ki=0.1, kd=0.1)
             return result
-        except Exception:
+        except Exception as parse_exc:
+            # M4 fix: log YAML parse failures — silent fallbacks hide LLM output bugs.
+            logger.warning(
+                "Failed to parse LLM YAML output for chain '%s', "
+                "falling back to no-change params: %s",
+                ctx.chain_name, parse_exc,
+            )
             return self._conservative_fallback(ctx)
 
     def _conservative_fallback(self, ctx: ChainContext) -> Dict[str, PIDParams]:

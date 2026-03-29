@@ -124,18 +124,18 @@ class LLMParamEditor:
             if not isinstance(parsed, dict):
                 raise ValueError("LLM output is not a YAML dict")
 
-            kp_range = safety_bounds.get("kp_range", [1.0, 50.0])  # type: ignore[assignment]
-            ki_range = safety_bounds.get("ki_range", [0.0, 10.0])  # type: ignore[assignment]
-            kd_range = safety_bounds.get("kd_range", [0.0, 20.0])  # type: ignore[assignment]
+            kp_range = self._safe_range(safety_bounds, "kp_range", [1.0, 50.0])
+            ki_range = self._safe_range(safety_bounds, "ki_range", [0.0, 10.0])
+            kd_range = self._safe_range(safety_bounds, "kd_range", [0.0, 20.0])
 
             kp = float(parsed.get("kp", current_pid.kp if current_pid else 5.0))
             ki = float(parsed.get("ki", current_pid.ki if current_pid else 0.1))
             kd = float(parsed.get("kd", current_pid.kd if current_pid else 0.5))
 
             # Clamp to bounds
-            kp = max(float(kp_range[0]), min(float(kp_range[1]), kp))  # type: ignore[index]
-            ki = max(float(ki_range[0]), min(float(ki_range[1]), ki))  # type: ignore[index]
-            kd = max(float(kd_range[0]), min(float(kd_range[1]), kd))  # type: ignore[index]
+            kp = max(kp_range[0], min(kp_range[1], kp))
+            ki = max(ki_range[0], min(ki_range[1], ki))
+            kd = max(kd_range[0], min(kd_range[1], kd))
 
             new_pid = PIDParams(kp=kp, ki=ki, kd=kd)
             if not hypothesis:
@@ -144,6 +144,23 @@ class LLMParamEditor:
 
         except Exception:
             return self._fallback_rule_engine(current_pid, None, safety_bounds)
+
+    @staticmethod
+    def _safe_range(bounds: Optional[Dict[str, object]], key: str, default: list) -> list:
+        """M5 fix: safely extract a [lo, hi] pair from safety_bounds.
+
+        YAML can deliver tuples, lists, or even strings.  This normalises
+        whatever is in the dict to a two-element [float, float] list so that
+        float(kp_range[0]) never raises TypeError/ValueError.
+        """
+        if bounds is None:
+            return default
+        raw = bounds.get(key, default)
+        try:
+            lo, hi = float(raw[0]), float(raw[1])  # type: ignore[index]
+            return [lo, hi]
+        except (TypeError, ValueError, IndexError):
+            return default
 
     def _fallback_rule_engine(
         self,
@@ -160,12 +177,12 @@ class LLMParamEditor:
         - default → small random perturbation
         """
         if current is None:
-            kp_range = safety_bounds.get("kp_range", [1.0, 50.0]) if safety_bounds else [1.0, 50.0]  # type: ignore
-            ki_range = safety_bounds.get("ki_range", [0.0, 10.0]) if safety_bounds else [0.0, 10.0]  # type: ignore
-            kd_range = safety_bounds.get("kd_range", [0.0, 20.0]) if safety_bounds else [0.0, 20.0]  # type: ignore
-            kp = random.uniform(float(kp_range[0]), float(kp_range[1]) * 0.3)  # type: ignore[index]
-            ki = random.uniform(float(ki_range[0]), float(ki_range[1]) * 0.2)  # type: ignore[index]
-            kd = random.uniform(float(kd_range[0]), float(kd_range[1]) * 0.2)  # type: ignore[index]
+            kp_range = self._safe_range(safety_bounds, "kp_range", [1.0, 50.0])
+            ki_range = self._safe_range(safety_bounds, "ki_range", [0.0, 10.0])
+            kd_range = self._safe_range(safety_bounds, "kd_range", [0.0, 20.0])
+            kp = random.uniform(kp_range[0], kp_range[1] * 0.3)
+            ki = random.uniform(ki_range[0], ki_range[1] * 0.2)
+            kd = random.uniform(kd_range[0], kd_range[1] * 0.2)
             return PIDParams(kp=kp, ki=ki, kd=kd), "rule: initial random guess"
 
         kp, ki, kd = current.kp, current.ki, current.kd
@@ -195,11 +212,11 @@ class LLMParamEditor:
 
         # Clamp to bounds
         if safety_bounds:
-            kp_range = safety_bounds.get("kp_range", [1.0, 50.0])  # type: ignore
-            ki_range = safety_bounds.get("ki_range", [0.0, 10.0])  # type: ignore
-            kd_range = safety_bounds.get("kd_range", [0.0, 20.0])  # type: ignore
-            kp = max(float(kp_range[0]), min(float(kp_range[1]), kp))  # type: ignore[index]
-            ki = max(float(ki_range[0]), min(float(ki_range[1]), ki))  # type: ignore[index]
-            kd = max(float(kd_range[0]), min(float(kd_range[1]), kd))  # type: ignore[index]
+            kp_range = self._safe_range(safety_bounds, "kp_range", [1.0, 50.0])
+            ki_range = self._safe_range(safety_bounds, "ki_range", [0.0, 10.0])
+            kd_range = self._safe_range(safety_bounds, "kd_range", [0.0, 20.0])
+            kp = max(kp_range[0], min(kp_range[1], kp))
+            ki = max(ki_range[0], min(ki_range[1], ki))
+            kd = max(kd_range[0], min(kd_range[1], kd))
 
         return PIDParams(kp=max(0.0, kp), ki=max(0.0, ki), kd=max(0.0, kd)), reason

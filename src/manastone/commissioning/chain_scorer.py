@@ -59,6 +59,11 @@ class ChainScorer:
 
         weights = [0.3 - 0.25 * i / max(n - 1, 1) for i in range(n)]
         total_w = sum(weights)
+        # M2 fix: guard against degenerate configs where total_w could be zero.
+        # Mathematically with n>=1 and the formula above total_w >= 0.05,
+        # but defensive programming prevents a ZeroDivisionError on bad config.
+        if total_w <= 0.0:
+            return 0.0
         joint_avg = (
             sum(w * joint_results[jn].best_score for jn, w in zip(joint_names, weights))
             / total_w

@@ -35,29 +35,29 @@ class AnomalyScorer:
     def score(
         self, joint_ctx: JointContext, recent_events: List[Dict[str, Any]]
     ) -> float:
-        components: Dict[str, float] = {
-            "temp_normalized": min(joint_ctx.temp_c / self._TEMP_MAX, 1.0),
-            "torque_normalized": min(abs(joint_ctx.torque_nm) / self._TORQUE_MAX, 1.0),
-            "tracking_error_normalized": min(
-                joint_ctx.tracking_error_mean / self._TRACKING_MAX, 1.0
-            ),
-            "efficiency_inverted": max(0.0, 1.0 - joint_ctx.torque_efficiency),
-            "comm_penalty": min(joint_ctx.comm_lost_count / self._COMM_MAX, 1.0),
-            "event_density": min(len(recent_events) / self._EVENT_MAX, 1.0),
-        }
+        components: Dict[str, float] = self._compute_components(joint_ctx, recent_events)
         return sum(self.WEIGHTS[k] * v for k, v in components.items())
 
     def score_components(
         self, joint_ctx: JointContext, recent_events: List[Dict[str, Any]]
     ) -> Dict[str, float]:
         """Return per-component scores (useful for debugging)."""
+        return self._compute_components(joint_ctx, recent_events)
+
+    def _compute_components(
+        self, joint_ctx: JointContext, recent_events: List[Dict[str, Any]]
+    ) -> Dict[str, float]:
+        # C2 fix: clamp torque_efficiency to [0, 1] before inversion.
+        # Noisy sensors can return values > 1.0, which would make
+        # efficiency_inverted go negative and suppress the anomaly score.
+        eff_clamped = max(0.0, min(1.0, joint_ctx.torque_efficiency))
         return {
             "temp_normalized": min(joint_ctx.temp_c / self._TEMP_MAX, 1.0),
             "torque_normalized": min(abs(joint_ctx.torque_nm) / self._TORQUE_MAX, 1.0),
             "tracking_error_normalized": min(
                 joint_ctx.tracking_error_mean / self._TRACKING_MAX, 1.0
             ),
-            "efficiency_inverted": max(0.0, 1.0 - joint_ctx.torque_efficiency),
+            "efficiency_inverted": 1.0 - eff_clamped,  # always in [0, 1]
             "comm_penalty": min(joint_ctx.comm_lost_count / self._COMM_MAX, 1.0),
             "event_density": min(len(recent_events) / self._EVENT_MAX, 1.0),
         }

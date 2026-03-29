@@ -204,7 +204,10 @@ class PIDWorkspace:
         if not results_path.exists():
             return 0
         lines = results_path.read_text().strip().split("\n")
-        return max(0, len(lines) - 1)  # subtract header
+        # L3: subtract 1 for the TSV header line; max(0, ...) guards the edge
+        # case where the file is empty after stripping (splitlines → [""]),
+        # which would make len=1 and naively return -1.
+        return max(0, len(lines) - 1)
 
     def get_best_params(self) -> Optional[PIDParams]:
         """Return the PID params from the highest-scoring kept experiment."""

@@ -87,10 +87,13 @@ class LifecycleRepo:
             target.write_text(json.dumps(content, indent=2, default=str))
             self._repo.index.add([filename])
             commit = self._repo.index.commit(message)
+            # H1 fix: only remove the sentinel AFTER the commit succeeds.
+            # If commit raises, the sentinel stays on disk so that the next
+            # init() call detects it and performs crash-recovery (git reset --hard).
             sentinel.unlink()
             return commit.hexsha[:8]
         except Exception:
-            sentinel.unlink(missing_ok=True)
+            # Do NOT unlink the sentinel here — leave it for crash recovery.
             raise
 
     def rollback(self, commits: int = 1) -> None:
@@ -123,15 +126,24 @@ class LifecycleRepository:
         self.repo_path = Path(base_dir) / robot_id
         self._git_available = bool(shutil.which("git"))
 
+    # M1 fix: all subprocess.run git calls now carry a timeout (default 30 s).
+    # Without this, a hung git process (e.g. NFS mount, full disk) would block
+    # the tuning main loop indefinitely.
+    _GIT_TIMEOUT_S = 30
+
     def init(self) -> None:
         self.repo_path.mkdir(parents=True, exist_ok=True)
         if not self._git_available:
             return
         if not (self.repo_path / ".git").exists():
-            subprocess.run(["git", "init"], cwd=self.repo_path, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "init"], cwd=self.repo_path, check=True,
+                capture_output=True, timeout=self._GIT_TIMEOUT_S,
+            )
             subprocess.run(
                 ["git", "commit", "--allow-empty", "-m", "init"],
-                cwd=self.repo_path, check=True, capture_output=True,
+                cwd=self.repo_path, check=True,
+                capture_output=True, timeout=self._GIT_TIMEOUT_S,
             )
 
     def create_profile_branch(self, profile_id: str) -> Path:
@@ -144,23 +156,29 @@ class LifecycleRepository:
             result = subprocess.run(
                 ["git", "branch", "--list", branch],
                 cwd=self.repo_path, capture_output=True, text=True,
+                timeout=self._GIT_TIMEOUT_S,
             )
             if not result.stdout.strip():
                 subprocess.run(
                     ["git", "checkout", "-b", branch],
                     cwd=self.repo_path, capture_output=True,
+                    timeout=self._GIT_TIMEOUT_S,
                 )
             else:
                 subprocess.run(
                     ["git", "checkout", branch],
                     cwd=self.repo_path, capture_output=True,
+                    timeout=self._GIT_TIMEOUT_S,
                 )
         return profile_dir
 
     def switch_profile(self, profile_id: str) -> Path:
         branch = f"{self.robot_id}/{profile_id}"
         if self._git_available and (self.repo_path / ".git").exists():
-            subprocess.run(["git", "checkout", branch], cwd=self.repo_path, capture_output=True)
+            subprocess.run(
+                ["git", "checkout", branch], cwd=self.repo_path,
+                capture_output=True, timeout=self._GIT_TIMEOUT_S,
+            )
         return self.repo_path / profile_id
 
     def get_best_params(self, profile_id: str) -> Optional[Dict[str, PIDParams]]:
@@ -181,7 +199,10 @@ class LifecycleRepository:
     def tag_version(self, profile_id: str, version: str, label: str = "stable") -> None:
         if self._git_available and (self.repo_path / ".git").exists():
             tag = f"{profile_id}/v{version}-{label}"
-            subprocess.run(["git", "tag", tag], cwd=self.repo_path, capture_output=True)
+            subprocess.run(
+                ["git", "tag", tag], cwd=self.repo_path,
+                capture_output=True, timeout=self._GIT_TIMEOUT_S,
+            )
 
     def list_profiles(self) -> List[str]:
         if not self._git_available or not (self.repo_path / ".git").exists():
@@ -192,6 +213,7 @@ class LifecycleRepository:
         result = subprocess.run(
             ["git", "branch", "--list", f"{self.robot_id}/*"],
             cwd=self.repo_path, capture_output=True, text=True,
+            timeout=self._GIT_TIMEOUT_S,
         )
         branches = []
         for b in result.stdout.strip().split("\n"):

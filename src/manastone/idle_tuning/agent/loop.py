@@ -38,6 +38,11 @@ class IdleTuningLoop:
         self.safety = safety
         self.robot_id = robot_id
         self.anomaly_threshold = anomaly_threshold
+        # H5 fix: replace hasattr(_mock_anomalies) test hook with an explicit
+        # provider callable.  Production code never calls set_mock_anomalies();
+        # tests set it to inject deterministic anomaly scores.
+        # This removes test/production logic interleaving from business methods.
+        self._anomaly_provider: Optional[Dict[str, float]] = None
 
     async def run_once(self, robot_id: str) -> Optional[IdleTuningSession]:
         """Run one iteration. Returns session if tuning happened, else None."""
@@ -131,23 +136,28 @@ class IdleTuningLoop:
         return max(eligible, key=lambda x: x[1])[0]
 
     async def _compute_chain_anomalies(self, robot_id: str) -> Dict[str, float]:
-        """Compute chain anomaly scores. In mock mode, use injected values."""
-        if hasattr(self, "_mock_anomalies"):
-            return self._mock_anomalies
+        """Compute chain anomaly scores. Uses injected provider if set."""
+        if self._anomaly_provider is not None:
+            return self._anomaly_provider
         # Default: all chains have low anomaly
         chains = self.config.get_kinematic_chains()
         return {name: 0.1 for name in chains}
 
     def set_mock_anomalies(self, scores: Dict[str, float]) -> None:
-        """Test helper: inject anomaly scores."""
-        self._mock_anomalies = scores
+        """Test helper: inject anomaly scores via the provider slot.
+
+        Uses the declared _anomaly_provider attribute (set in __init__)
+        rather than hasattr() duck-typing, keeping test logic out of
+        production code paths.
+        """
+        self._anomaly_provider = scores
 
     def _build_mock_chain_context(self, chain_name: str) -> ChainContext:
         joints = self.config.get_chain_tuning_order(chain_name)
         joint_contexts = []
         anomaly = (
-            self._mock_anomalies.get(chain_name, 0.35)
-            if hasattr(self, "_mock_anomalies")
+            self._anomaly_provider.get(chain_name, 0.35)
+            if self._anomaly_provider is not None
             else 0.35
         )
         for i, jname in enumerate(joints):

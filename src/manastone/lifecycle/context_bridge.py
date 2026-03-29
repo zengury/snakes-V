@@ -110,26 +110,26 @@ class ContextBridge:
         anomaly = AnomalyScorer().score(partial, recent_events)
 
         # InitialContext + tuning history
+        # H4 fix: guard ALL accesses to `initial` behind a single None check.
+        # `load_for_runtime` returns None for freshly commissioned robots that
+        # have not yet persisted a context file.  Accessing `.joints` or
+        # `.commissioning_date` on None causes an immediate AttributeError.
         initial = self.load_for_runtime(robot_id)
-        initial_joint = initial.joints.get(joint_name) if initial else None
 
         last_params: Optional[PIDParams] = None
         hours_since_last_tune = 0.0
+        hours_since_comm = 0.0
         tune_count = 0
         quality_trend: List[float] = []
 
-        if initial_joint:
-            last_params = initial_joint.base_pid
-            if initial:
-                hours_since_last_tune = (
-                    datetime.now() - initial.commissioning_date
-                ).total_seconds() / 3600.0
-
-        hours_since_comm = (
-            (datetime.now() - initial.commissioning_date).total_seconds() / 3600.0
-            if initial
-            else 0.0
-        )
+        if initial is not None:
+            initial_joint = initial.joints.get(joint_name)
+            hours_since_comm = (
+                datetime.now() - initial.commissioning_date
+            ).total_seconds() / 3600.0
+            if initial_joint is not None:
+                last_params = initial_joint.base_pid
+                hours_since_last_tune = hours_since_comm  # best available estimate
 
         tracking_error = self._compute_tracking_error(window, last_params, position)
         tracking_max = self._compute_max_tracking_error(window, last_params)

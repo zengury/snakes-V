@@ -58,7 +58,14 @@ class PIDParams(BaseModel):
     @field_validator("kp", "ki", "kd", mode="before")
     @classmethod
     def _round6(cls, v: Any) -> float:
-        return round(float(v), 6)
+        # L2 fix: wrap conversion with a descriptive error so callers know
+        # which field has the bad value (plain float() raises a generic ValueError).
+        try:
+            return round(float(v), 6)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"PIDParams field must be a number, got {v!r} ({type(v).__name__}): {exc}"
+            ) from exc
 
 
 class SystemIdResult(BaseModel):

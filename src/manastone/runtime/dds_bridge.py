@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import random
 import time
@@ -18,6 +19,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
 
 from manastone.common.config import ManaConfig
+
+logger = logging.getLogger(__name__)
 
 
 class DDSConnectionLostError(Exception):
@@ -114,6 +117,9 @@ class RealDDSBridge(DDSBridge):
         return await asyncio.wait_for(fut, timeout=10.0)
 
     async def _message_loop(self) -> None:
+        # H3 fix: separate callback errors from connection errors, and log both.
+        # Previously a bare `except Exception` swallowed all failures silently,
+        # causing the robot state to stop updating with zero operator visibility.
         try:
             async for raw in self._ws:
                 msg = json.loads(raw)
@@ -121,14 +127,26 @@ class RealDDSBridge(DDSBridge):
                 if op == "publish":
                     topic = msg.get("topic", "")
                     for cb in self._subscribers.get(topic, []):
-                        result = cb(msg.get("msg", {}))
-                        if asyncio.iscoroutine(result):
-                            await result
+                        try:
+                            result = cb(msg.get("msg", {}))
+                            if asyncio.iscoroutine(result):
+                                await result
+                        except Exception as cb_exc:
+                            # Callback errors must not kill the message loop.
+                            logger.error(
+                                "DDS callback error on topic %s: %s", topic, cb_exc,
+                                exc_info=True,
+                            )
                 elif op == "service_response":
                     call_id = msg.get("id", "")
                     if call_id in self._service_futures:
                         self._service_futures.pop(call_id).set_result(msg.get("values", {}))
-        except Exception:
+        except Exception as loop_exc:
+            # Connection-level failure (WebSocket closed, parse error, etc.)
+            logger.error(
+                "DDS message loop terminated unexpectedly: %s", loop_exc,
+                exc_info=True,
+            )
             self._running = False
 
     async def disconnect(self) -> None:

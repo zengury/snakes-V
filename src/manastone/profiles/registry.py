@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from manastone.profiles.profile import TuningProfile
+
+logger = logging.getLogger(__name__)
 
 
 class ProfileNotFoundError(Exception):
@@ -31,15 +34,20 @@ class ProfileRegistry:
             return
         self._loaded = True
 
-        # Load builtin profiles first
+        # Load builtin profiles first.
+        # L1 fix: use logger.error (not warnings.warn) for builtin failures so
+        # they appear in structured logs and are not silently filtered.
         if self._BUILTIN_DIR.exists():
             for yaml_path in sorted(self._BUILTIN_DIR.glob("*.yaml")):
                 try:
                     profile = TuningProfile.from_yaml(yaml_path)
                     self._profiles[profile.profile_id] = profile
                 except Exception as exc:
-                    import warnings
-                    warnings.warn(f"Failed to load builtin profile {yaml_path}: {exc}")
+                    logger.error(
+                        "Failed to load builtin profile %s — "
+                        "this profile will be unavailable: %s",
+                        yaml_path, exc, exc_info=True,
+                    )
 
         # Load user overrides (may override builtin)
         if self._user_dir.exists():
@@ -48,8 +56,11 @@ class ProfileRegistry:
                     profile = TuningProfile.from_yaml(yaml_path)
                     self._profiles[profile.profile_id] = profile
                 except Exception as exc:
-                    import warnings
-                    warnings.warn(f"Failed to load user profile {yaml_path}: {exc}")
+                    logger.warning(
+                        "Failed to load user profile %s — "
+                        "this override will be skipped: %s",
+                        yaml_path, exc, exc_info=True,
+                    )
 
     def get(self, profile_id: str) -> TuningProfile:
         """Return a TuningProfile by ID. Raises ProfileNotFoundError if not found."""

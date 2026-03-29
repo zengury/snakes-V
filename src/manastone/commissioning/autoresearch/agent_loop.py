@@ -78,11 +78,19 @@ class AutoResearchLoop:
             optuna_suggestion: Optional[Dict[str, float]] = None
 
             if use_optuna and study is not None and exp_num > 0:
-                trial = study.ask()
-                kp = trial.suggest_float("kp", safety_bounds["kp_range"][0], safety_bounds["kp_range"][1])
-                ki = trial.suggest_float("ki", safety_bounds["ki_range"][0], safety_bounds["ki_range"][1])
-                kd = trial.suggest_float("kd", safety_bounds["kd_range"][0], safety_bounds["kd_range"][1])
-                optuna_suggestion = {"kp": kp, "ki": ki, "kd": kd}
+                # C1 fix: reset trial before ask() so a failure never leaves a stale trial
+                # that would corrupt study.tell() on the next iteration.
+                trial = None
+                try:
+                    trial = study.ask()
+                    kp = trial.suggest_float("kp", safety_bounds["kp_range"][0], safety_bounds["kp_range"][1])
+                    ki = trial.suggest_float("ki", safety_bounds["ki_range"][0], safety_bounds["ki_range"][1])
+                    kd = trial.suggest_float("kd", safety_bounds["kd_range"][0], safety_bounds["kd_range"][1])
+                    optuna_suggestion = {"kp": kp, "ki": ki, "kd": kd}
+                except Exception:
+                    # study.ask() failed; fall back to LLM/rule-engine for this iteration.
+                    trial = None
+                    optuna_suggestion = None
 
             # 2. LLM generates hypothesis (and params if no Optuna)
             current_pid = self._workspace.read_params()

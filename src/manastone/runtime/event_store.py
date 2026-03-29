@@ -8,10 +8,14 @@ Lifecycle state checkpoint is also stored here.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 _CREATE_EVENTS = """
@@ -41,21 +45,30 @@ CREATE TABLE IF NOT EXISTS lifecycle_state (
 
 
 class EventStore:
-    """Thread-safe (WAL) SQLite event log and lifecycle state store."""
+    """Thread-safe (WAL) SQLite event log and lifecycle state store.
+
+    H2 fix: each thread gets its own sqlite3.Connection via threading.local().
+    Sharing a single connection across threads with check_same_thread=False
+    can cause corruption even with WAL mode when multiple threads write
+    simultaneously.  Per-thread connections are the correct SQLite pattern.
+    """
 
     def __init__(self, db_path: str = "storage/eventlog/events.db") -> None:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._local = threading.local()  # H2: thread-local connection storage
         self._init()
 
     def _connect(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-        return self._conn
+        # Return (or create) the connection for the current thread.
+        conn: Optional[sqlite3.Connection] = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(self._db_path)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            self._local.conn = conn
+        return conn
 
     def _init(self) -> None:
         conn = self._connect()
@@ -129,9 +142,11 @@ class EventStore:
         return dict(row) if row else None
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        """Close the connection for the current thread."""
+        conn: Optional[sqlite3.Connection] = getattr(self._local, "conn", None)
+        if conn:
+            conn.close()
+            self._local.conn = None
 
 
 # Module-level singleton.

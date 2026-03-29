@@ -108,12 +108,14 @@ class RealDDSBridge(DDSBridge):
             await self._ws.send(_subscribe_msg(topic, msg_type, throttle_rate))
 
     async def call_service(self, service: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._ws:
+            raise DDSConnectionLostError("DDS service call attempted while disconnected")
+
         call_id = f"{service}-{time.monotonic()}"
         loop = asyncio.get_event_loop()
         fut: asyncio.Future = loop.create_future()
         self._service_futures[call_id] = fut
-        if self._ws:
-            await self._ws.send(_call_service_msg(service, args, call_id))
+        await self._ws.send(_call_service_msg(service, args, call_id))
         return await asyncio.wait_for(fut, timeout=10.0)
 
     async def _message_loop(self) -> None:

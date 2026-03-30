@@ -250,6 +250,118 @@ good_params = asyncio.run(store.get_last_good_params("G1_001", "left_leg"))
 await param_writer.write_chain_params("left_leg", good_params)
 ```
 
+### Connecting real sensor data
+
+In mock mode, all sensor data flows from `MockDDSBridge`. On the real robot you replace it with `RealDDSBridge`, which subscribes to rosbridge WebSocket topics and feeds the same downstream pipeline — no other code changes required.
+
+**Step 1 — Start rosbridge on the Orin NX**
+
+```bash
+# On Orin NX, in your ROS2 workspace
+source /opt/ros/humble/setup.bash   # or foxy/galactic depending on your install
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+# Listening on ws://localhost:9090
+```
+
+**Step 2 — Wire `RealDDSBridge` into `ManaConfig`**
+
+```python
+import asyncio
+from manastone.common.config import ManaConfig
+from manastone.runtime.dds_bridge import RealDDSBridge
+from manastone.runtime.ring_buffer import JointRingBuffer
+from manastone.runtime.anomaly_scorer import AnomalyScorer
+
+config = ManaConfig.get()                         # reads ROSBRIDGE_URL from env
+
+bridge = RealDDSBridge(config)
+await bridge.connect()
+
+# Subscribe to joint states — callback feeds the ring buffer
+buffer = JointRingBuffer(duration_s=30, sample_rate_hz=50)
+await bridge.subscribe(
+    topic="/lowstate",
+    msg_type="unitree_msgs/LowState",
+    callback=buffer.push,
+)
+```
+
+**Step 3 — Feed `AnomalyScorer`**
+
+```python
+from manastone.common.models import JointContext
+
+scorer = AnomalyScorer()
+
+# Periodically (e.g., every 1 s) pull the latest window and score each joint
+snapshot = buffer.get_latest_window("left_knee")
+joint_ctx = JointContext(
+    joint_name="left_knee",
+    temp_c=snapshot["temp_mean"],
+    torque_nm=snapshot["torque_rms"],
+    velocity_rad_s=snapshot["velocity_mean"],
+    tracking_error=snapshot["tracking_error"],
+    torque_efficiency=snapshot["efficiency"],
+)
+score = scorer.score(joint_ctx, recent_events=[])
+print(f"left_knee anomaly: {score:.3f}")   # > 0.3 triggers idle tuning
+```
+
+**Step 4 — Wire `AnomalyScorer` into `IdleTuningLoop`**
+
+`IdleTuningLoop._compute_chain_anomalies()` uses `self._anomaly_provider` when injected, otherwise returns all-low defaults. Inject a real provider at construction time:
+
+```python
+from manastone.idle_tuning.agent.loop import IdleTuningLoop
+
+# Build a dict of chain → anomaly score using the scorer above
+async def live_anomaly_provider(robot_id: str) -> dict[str, float]:
+    chain_scores = {}
+    for chain_name, joints in config.get_kinematic_chains().items():
+        scores = [
+            scorer.score(
+                JointContext.from_buffer(buffer.get_latest_window(j)), []
+            )
+            for j in joints
+        ]
+        chain_scores[chain_name] = max(scores)
+    return chain_scores
+
+loop = IdleTuningLoop(
+    robot_id="G1_001",
+    config=config,
+    dds_bridge=bridge,
+    anomaly_provider=live_anomaly_provider,   # inject here
+)
+await loop.start()
+```
+
+**Step 5 — Verify end-to-end**
+
+```bash
+# Quick smoke test: confirm real joint data is arriving
+python3 - <<'EOF'
+import asyncio, os
+from manastone.common.config import ManaConfig
+from manastone.runtime.dds_bridge import RealDDSBridge
+
+async def main():
+    config = ManaConfig.get()
+    bridge = RealDDSBridge(config)
+    await bridge.connect()
+    received = []
+    await bridge.subscribe("/lowstate", "unitree_msgs/LowState",
+                           lambda msg: received.append(msg))
+    await asyncio.sleep(0.5)
+    print(f"Messages received: {len(received)}")   # expect ~25 at 50 Hz
+    await bridge.disconnect()
+
+asyncio.run(main())
+EOF
+```
+
+> **Tip:** If `ROSBRIDGE_URL` is not set, `ManaConfig` defaults to `ws://localhost:9090`. On the Orin NX this is always correct. From a dev machine, set it to `ws://192.168.123.164:9090`.
+
 ---
 
 ## XGBoost flywheel (AI/ML engineer)

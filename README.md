@@ -4,11 +4,27 @@
 
 ---
 
+## Status
+
+| Capability | State |
+|---|---|
+| Mock-mode commissioning (all 5 chains, Bayesian + LLM) | ✅ Validated — 138 tests passing |
+| Mock-mode idle tuning (XGBoost flywheel, anomaly detection) | ✅ Validated |
+| Mock-mode agent gateway (natural language interface, memory) | ✅ Validated |
+| Real rosbridge WebSocket connection (Orin NX ↔ RockChip) | 🔧 Implemented, pending real-hardware test |
+| Real PID parameter write via ROS2 stack | 🔧 Implemented, pending real-hardware test |
+| MCP/SSE server on `:8090` | 🔧 Scaffolded — real SSE wiring in progress (Phase 5) |
+| Wrist joints (6 DOF to full 29) | 📋 Planned — current schema covers 23 joints |
+
+The pipeline architecture is complete and testable without a robot. Hardware validation is the next milestone.
+
+---
+
 ## The problem nobody has solved yet
 
 A Unitree G1 has 29 joints. Each joint has a PID controller. Each controller has 3 parameters.
 
-That is **87 numbers** that have to be right — and they drift. Motors heat up. Parts wear. Loads change. When the numbers are off, the robot moves badly. When they drift silently, nobody notices until something fails.
+That is **up to 87 numbers** that have to be right — and they drift. Manastone currently covers 23 actuated joints (legs, arms, and waist); wrist joints are planned for the next schema revision. Motors heat up. Parts wear. Loads change. When the numbers are off, the robot moves badly. When they drift silently, nobody notices until something fails.
 
 Manual tuning by a skilled engineer: **3–5 days per robot.**
 Fleet of 10 robots: **1–2 engineer-months, every cycle.**
@@ -140,6 +156,8 @@ python -m pytest tests/ -q
 ```
 
 **On the G1's Orin NX**:
+
+> ⚠️ **Security:** The agent port `:8090` has no authentication yet ([issue #1](https://github.com/zengury/snakes-V/issues/1)). Do not expose it on a shared or public network. Use SSH port-forwarding until this is resolved.
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."

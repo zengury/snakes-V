@@ -101,12 +101,45 @@ class ManastoneAgent:
         if action == "chain_tune":
             chain = intent.get("chain", "left_leg")
             self.memory.record_event("tune_started", f"{chain} chain_tune commanded")
-            return {
-                "success": True,
-                "action": "chain_tune",
-                "chain": chain,
-                "note": "Use commissioning module to execute (requires robot)",
-            }
+            try:
+                from manastone.commissioning.chain_orchestrator import (
+                    ChainTuningOrchestrator,
+                )
+                from manastone.profiles.registry import ProfileRegistry
+
+                profile_id = intent.get("profile", "classic_precision")
+                profile = ProfileRegistry().get(profile_id)
+                orch = ChainTuningOrchestrator(
+                    config=self.config,
+                    profile=profile,
+                    storage_dir=self._storage_dir,
+                    robot_id=self.robot_id,
+                )
+                result = await orch.tune_chain(
+                    chain_name=chain,
+                    target_score=intent.get("target_score", 80.0),
+                    max_experiments_per_joint=intent.get("max_experiments", 30),
+                )
+                self.memory.record_event(
+                    "tune_completed",
+                    f"{chain} score={result.chain_score:.1f} exps={result.total_experiments}",
+                )
+                return {
+                    "success": True,
+                    "action": "chain_tune",
+                    "chain": chain,
+                    "chain_score": result.chain_score,
+                    "total_experiments": result.total_experiments,
+                    "profile": profile_id,
+                }
+            except Exception as exc:
+                self.memory.record_event("tune_error", f"{chain}: {str(exc)[:80]}")
+                return {
+                    "success": False,
+                    "action": "chain_tune",
+                    "chain": chain,
+                    "error": str(exc),
+                }
 
         elif action == "workflow":
             workflow = intent.get("workflow", "health_report")

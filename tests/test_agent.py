@@ -139,6 +139,45 @@ def test_intent_parser_regex_fast_path():
     assert r3["action"] == "pause_tuning"
 
 
+def test_confirmation_gate_requires_confirm_token():
+    """When MANASTONE_REQUIRE_CONFIRMATION=true, risky actions must be confirmed."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.environ["MANASTONE_REQUIRE_CONFIRMATION"] = "true"
+        try:
+            agent = make_agent(tmpdir)
+            r1 = asyncio.run(agent.command("tune the left leg"))
+            assert r1["success"] is False
+            assert r1.get("requires_confirmation") is True
+            token = r1.get("confirm_token")
+            assert isinstance(token, str) and len(token) > 0
+
+            r2 = asyncio.run(agent.command(f"confirm {token}"))
+            assert r2["success"] is True
+            assert r2["action"] == "chain_tune"
+            assert r2["chain"] == "left_leg"
+        finally:
+            os.environ.pop("MANASTONE_REQUIRE_CONFIRMATION", None)
+
+
+def test_confirmation_gate_cancel():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.environ["MANASTONE_REQUIRE_CONFIRMATION"] = "true"
+        try:
+            agent = make_agent(tmpdir)
+            r1 = asyncio.run(agent.command("tune the left leg"))
+            assert r1.get("requires_confirmation") is True
+
+            r2 = asyncio.run(agent.command("cancel"))
+            assert r2["success"] is True
+            assert r2["canceled"] is True
+
+            # After cancel, a new tune request should again ask for confirmation
+            r3 = asyncio.run(agent.command("tune the left leg"))
+            assert r3.get("requires_confirmation") is True
+        finally:
+            os.environ.pop("MANASTONE_REQUIRE_CONFIRMATION", None)
+
+
 def test_background_observer_instantiates():
     async def _run():
         with tempfile.TemporaryDirectory() as tmpdir:

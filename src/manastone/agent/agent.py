@@ -1,5 +1,8 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+import secrets
+from datetime import datetime, timezone
 
 from manastone.common.config import ManaConfig
 from manastone.agent.memory import AgentMemory
@@ -21,6 +24,10 @@ class ManastoneAgent:
     """Top-level Agent. Wires all components together.
 
     Single entry point for all human interaction and all LLM calls.
+
+    Safety:
+    - In real mode, risky actions require a second explicit confirmation.
+      This is a lightweight analogue of a tool-permission gate.
     """
 
     def __init__(
@@ -86,13 +93,121 @@ class ManastoneAgent:
     async def command(self, instruction: str) -> dict:
         """Parse and execute an instruction."""
         self.memory.record_event("human_command", instruction[:100])
+
+        # 0) Confirmation gate: if a risky action is pending, user must confirm or cancel.
+        pending = self._get_pending_confirmation()
+        if pending is not None:
+            token = str(pending.get("token", ""))
+            if self._is_confirmation_message(instruction, token):
+                intent = dict(pending.get("intent", {}))
+                intent["confirmed"] = True
+                self._clear_pending_confirmation()
+                result = await self._execute_intent(intent)
+                self.memory.record_event(
+                    "command_result",
+                    f"action={intent.get('action')}, success={result.get('success', False)}, confirmed=true",
+                )
+                return result
+
+            if self._is_cancel_message(instruction):
+                self._clear_pending_confirmation()
+                return {
+                    "success": True,
+                    "action": "cancel",
+                    "canceled": True,
+                    "message": "Canceled pending action.",
+                }
+
+            return {
+                "success": False,
+                "error": "pending_confirmation",
+                "message": "A risky action is pending confirmation. Reply with 'confirm <token>' to proceed or 'cancel' to abort.",
+                "confirm_token": token,
+                "pending_action": pending.get("intent", {}).get("action"),
+                "pending_preview": pending.get("preview", ""),
+            }
+
+        # 1) Parse intent
         intent = await self.intent_parser.parse(instruction)
+
+        # 2) If risky, require explicit confirmation (real mode by default)
+        if self._requires_confirmation(intent) and not bool(intent.get("confirmed")):
+            token = self._set_pending_confirmation(intent, preview=instruction[:160])
+            return {
+                "success": False,
+                "requires_confirmation": True,
+                "confirm_token": token,
+                "message": "This action may change robot parameters. Reply with 'confirm <token>' to proceed, or 'cancel' to abort.",
+                "intent": {k: intent.get(k) for k in ("action", "chain", "profile", "workflow", "raw") if k in intent},
+            }
+
+        # 3) Execute
         result = await self._execute_intent(intent)
         self.memory.record_event(
             "command_result",
             f"action={intent.get('action')}, success={result.get('success', False)}",
         )
         return result
+
+    # ------------------------------------------------------------------ confirmation gate helpers
+
+    def _requires_confirmation(self, intent: dict) -> bool:
+        if not self.config.require_confirmations():
+            return False
+        action = intent.get("action")
+        # Expand this set as more write-capable actions are added.
+        return action in {"chain_tune", "rollback"}
+
+    def _get_pending_confirmation(self) -> Optional[dict]:
+        pending = self.memory.working.get("pending_confirmation")
+        if not isinstance(pending, dict):
+            return None
+
+        created_at = pending.get("created_at")
+        if not isinstance(created_at, str):
+            self._clear_pending_confirmation()
+            return None
+
+        try:
+            created = datetime.fromisoformat(created_at)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+        except Exception:
+            self._clear_pending_confirmation()
+            return None
+
+        age_s = (datetime.now(timezone.utc) - created).total_seconds()
+        # 5-minute TTL
+        if age_s > 300:
+            self._clear_pending_confirmation()
+            return None
+
+        return pending
+
+    def _set_pending_confirmation(self, intent: dict, preview: str) -> str:
+        token = secrets.token_urlsafe(8)
+        self.memory.working["pending_confirmation"] = {
+            "token": token,
+            "intent": intent,
+            "preview": preview,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return token
+
+    def _clear_pending_confirmation(self) -> None:
+        self.memory.working.pop("pending_confirmation", None)
+
+    @staticmethod
+    def _is_confirmation_message(text: str, token: str) -> bool:
+        t = text.strip().lower()
+        if token and token in text:
+            return True
+        return t in {"confirm", "yes", "y", "确认", "好的", "ok", "okay"} or t.startswith("confirm ")
+
+    @staticmethod
+    def _is_cancel_message(text: str) -> bool:
+        t = text.strip().lower()
+        return t in {"cancel", "abort", "no", "n", "取消", "停止"}
 
     async def status(self) -> dict:
         """Return comprehensive status."""

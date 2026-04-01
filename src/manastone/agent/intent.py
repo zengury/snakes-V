@@ -1,17 +1,35 @@
 import re
 import json
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 INTENT_PARSE_PROMPT = """Parse the user's instruction into a JSON intent object.
 
-Output ONLY valid JSON with these fields:
-- action: one of "chain_tune", "workflow", "pause_tuning", "resume_tuning", "rollback", "status", "unknown"
-- chain: chain name if action is "chain_tune" (e.g. "left_leg", "right_arm")
-- workflow: workflow name if action is "workflow" (e.g. "commissioning_full", "health_report")
-- raw: the original instruction
-
-Example: {"action": "chain_tune", "chain": "left_leg", "raw": "tune the left leg"}
+Return ONLY a JSON object matching the provided JSON Schema.
+Do not include any extra keys.
 """
+
+INTENT_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": [
+                "chain_tune",
+                "workflow",
+                "pause_tuning",
+                "resume_tuning",
+                "rollback",
+                "status",
+                "unknown",
+            ],
+        },
+        "chain": {"type": ["string", "null"]},
+        "workflow": {"type": ["string", "null"]},
+        "raw": {"type": "string"},
+    },
+    "required": ["action", "raw"],
+    "additionalProperties": False,
+}
 
 
 class IntentParser:
@@ -39,20 +57,20 @@ class IntentParser:
             if re.search(pattern, lowered, re.IGNORECASE):
                 return {**intent, "raw": instruction}
 
-        # LLM fallback
+        # LLM fallback (structured)
         if self._llm_proxy:
             try:
-                response = await self._llm_proxy.call(
+                parsed = await self._llm_proxy.call_json(
                     caller="agent",
                     system_prompt=INTENT_PARSE_PROMPT,
                     user_message=instruction,
+                    schema=INTENT_SCHEMA,
                     inject_memory=False,
                     max_tokens=200,
                 )
-                # Extract JSON
-                match = re.search(r"\{.*\}", response, re.DOTALL)
-                if match:
-                    return json.loads(match.group())
+                # Ensure raw is always preserved as the original user string.
+                parsed["raw"] = instruction
+                return parsed
             except Exception:
                 pass
 

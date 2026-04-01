@@ -48,6 +48,20 @@ class ManaConfig:
     def is_mock_mode(self) -> bool:
         return os.environ.get("MANASTONE_MOCK_MODE", "false").lower() == "true"
 
+    def require_confirmations(self) -> bool:
+        """Whether dangerous actions require a second explicit confirmation.
+
+        Defaults:
+        - Mock mode: False (to keep local tests fast and ergonomic)
+        - Real mode: True (safe-by-default)
+
+        Override with MANASTONE_REQUIRE_CONFIRMATION=true|false.
+        """
+        env = os.environ.get("MANASTONE_REQUIRE_CONFIRMATION")
+        if env is not None:
+            return env.lower() == "true"
+        return not self.is_mock_mode()
+
     def get_storage_dir(self) -> Path:
         return Path(os.environ.get("MANASTONE_STORAGE_DIR", "storage"))
 

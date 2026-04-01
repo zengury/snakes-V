@@ -62,13 +62,23 @@ class WorkflowEngine:
                     f"- {e['type']}: {e['summary']}" for e in recent[-10:]
                 )
                 insight_text = "\n".join(f"- {i['text']}" for i in insights)
+                file_mem_ctx = ""
+                try:
+                    file_mem_ctx = self._agent.file_memory.build_recall_context("health report")
+                except Exception:
+                    file_mem_ctx = ""
+
+                user_message = f"Events:\n{event_text}\n\nInsights:\n{insight_text}"
+                if file_mem_ctx:
+                    user_message = f"{file_mem_ctx}\n\n=== TASK ===\n" + user_message
+
                 summary = await self._agent.llm_proxy.call(
                     caller="agent",
                     system_prompt=(
                         "You are a robot health analyst. Summarize the robot's recent "
                         "performance and key insights in 3-5 bullet points."
                     ),
-                    user_message=f"Events:\n{event_text}\n\nInsights:\n{insight_text}",
+                    user_message=user_message,
                     inject_memory=False,
                     max_tokens=400,
                 )

@@ -3,6 +3,8 @@ from typing import Optional
 
 from manastone.common.config import ManaConfig
 from manastone.agent.memory import AgentMemory
+from manastone.agent.file_memory import FileMemoryStore
+from manastone.agent.memdir import ensure_robot_identity_memory
 from manastone.agent.token_budget import TokenBudget
 from manastone.agent.llm_proxy import LLMProxy
 from manastone.agent.event_sink import AgentEventSink
@@ -34,6 +36,14 @@ class ManastoneAgent:
 
         # Core components
         self.memory = AgentMemory(robot_id, self._storage_dir)
+
+        # File-based persistent memory (Phase 1: identity only)
+        self.file_memory = FileMemoryStore(robot_id, self._storage_dir)
+        try:
+            ensure_robot_identity_memory(self._storage_dir, robot_id, config=self.config)
+        except Exception:
+            # Never block agent startup on memory IO.
+            pass
         self.token_budget = TokenBudget(daily_budget)
         self.llm_proxy = LLMProxy(self.memory, self.token_budget, self.config)
         self.event_sink = AgentEventSink(self.memory)
@@ -46,19 +56,27 @@ class ManastoneAgent:
     async def ask(self, question: str) -> str:
         """Answer a question using memory and state."""
         memory_ctx = self.memory.build_context_for_llm()
+        file_mem_ctx = self.file_memory.build_recall_context(question)
+
+        user_message = f"Question: {question}"
+        if memory_ctx or file_mem_ctx:
+            user_message = (
+                f"=== EPISODIC/SEMANTIC MEMORY (JSON) ===\n{memory_ctx}\n\n"
+                f"{file_mem_ctx}\n"
+                f"=== TASK ===\nQuestion: {question}"
+            )
 
         try:
             answer = await self.llm_proxy.call(
                 caller="agent",
                 system_prompt=AGENT_QA_PROMPT,
-                user_message=f"Question: {question}",
-                inject_memory=True,
+                user_message=user_message,
+                inject_memory=False,
                 max_tokens=500,
             )
         except Exception as e:
-            answer = (
-                f"[LLM unavailable: {str(e)[:80]}] Memory context: {memory_ctx[:200]}"
-            )
+            preview = (memory_ctx + "\n" + file_mem_ctx).strip()[:250]
+            answer = f"[LLM unavailable: {str(e)[:80]}] Memory context: {preview}"
 
         self.memory.record_event(
             "human_qa", f"Q: {question[:60]} A: {answer[:60]}"

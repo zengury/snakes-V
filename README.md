@@ -183,6 +183,14 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the full role-by-role guide: every comman
 
 ---
 
+## File-based memory (MemDir)
+
+Manastone maintains a file-based, auditable persistent memory directory per robot.
+Phase 1 auto-maintains `robot_identity.md` (type `robot_fact`) so the agent always
+knows "who I am".
+
+See: `docs/memory-system-design.md`.
+
 ## What's inside
 
 ```

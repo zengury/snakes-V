@@ -25,6 +25,21 @@ def test_agent_status():
         assert "recent_events" in result
 
 
+def test_file_memdir_identity_created():
+    """Phase 1: robot_identity.md must exist so the agent knows who it is."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = make_agent(tmpdir)
+        mem_root = Path(tmpdir) / "agent_memory" / "test_robot" / "memories"
+        identity = mem_root / "robot_identity.md"
+        index = mem_root / "MEMORY.md"
+
+        assert identity.exists()
+        assert index.exists()
+        assert "type: robot_fact" in identity.read_text()
+        assert "robot_id: test_robot" in identity.read_text()
+        assert "robot_identity.md" in index.read_text()
+
+
 def test_agent_teach():
     with tempfile.TemporaryDirectory() as tmpdir:
         agent = make_agent(tmpdir)

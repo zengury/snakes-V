@@ -5,6 +5,7 @@ from manastone.common.config import ManaConfig
 from manastone.agent.memory import AgentMemory
 from manastone.agent.file_memory import FileMemoryStore
 from manastone.agent.memdir import ensure_robot_identity_memory
+from manastone.agent.memory_extractor import MemDirExtractor, MemoryTurnContext
 from manastone.agent.token_budget import TokenBudget
 from manastone.agent.llm_proxy import LLMProxy
 from manastone.agent.event_sink import AgentEventSink
@@ -36,16 +37,20 @@ class ManastoneAgent:
 
         # Core components
         self.memory = AgentMemory(robot_id, self._storage_dir)
+        self.token_budget = TokenBudget(daily_budget)
+        self.llm_proxy = LLMProxy(self.memory, self.token_budget, self.config)
 
-        # File-based persistent memory (Phase 1: identity only)
+        # File-based persistent memory
         self.file_memory = FileMemoryStore(robot_id, self._storage_dir)
+        self.mem_extractor = MemDirExtractor(robot_id, self._storage_dir, self.llm_proxy)
+
+        # Always maintain robot identity (robot_fact)
         try:
             ensure_robot_identity_memory(self._storage_dir, robot_id, config=self.config)
         except Exception:
             # Never block agent startup on memory IO.
             pass
-        self.token_budget = TokenBudget(daily_budget)
-        self.llm_proxy = LLMProxy(self.memory, self.token_budget, self.config)
+
         self.event_sink = AgentEventSink(self.memory)
         self.intent_parser = IntentParser(self.llm_proxy)
         self.workflows = WorkflowEngine(self)
@@ -81,6 +86,30 @@ class ManastoneAgent:
         self.memory.record_event(
             "human_qa", f"Q: {question[:60]} A: {answer[:60]}"
         )
+
+        # Auto-extract durable memories (best-effort, non-blocking)
+        try:
+            # Keep identity up to date (e.g., env/config changes)
+            ensure_robot_identity_memory(self._storage_dir, self.robot_id, config=self.config)
+        except Exception:
+            pass
+        try:
+            import asyncio
+
+            asyncio.create_task(
+                self.mem_extractor.extract_and_apply(
+                    MemoryTurnContext(
+                        robot_id=self.robot_id,
+                        user_text=question,
+                        result_summary=answer[:400],
+                        action="ask",
+                        success=True,
+                    )
+                )
+            )
+        except Exception:
+            pass
+
         return answer
 
     async def command(self, instruction: str) -> dict:
@@ -92,6 +121,29 @@ class ManastoneAgent:
             "command_result",
             f"action={intent.get('action')}, success={result.get('success', False)}",
         )
+
+        # Auto-extract durable memories (best-effort, non-blocking)
+        try:
+            ensure_robot_identity_memory(self._storage_dir, self.robot_id, config=self.config)
+        except Exception:
+            pass
+        try:
+            import asyncio
+
+            asyncio.create_task(
+                self.mem_extractor.extract_and_apply(
+                    MemoryTurnContext(
+                        robot_id=self.robot_id,
+                        user_text=instruction,
+                        result_summary=str(result)[:800],
+                        action=str(intent.get("action", "command")),
+                        success=bool(result.get("success", False)),
+                    )
+                )
+            )
+        except Exception:
+            pass
+
         return result
 
     async def status(self) -> dict:

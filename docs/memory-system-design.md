@@ -1,6 +1,6 @@
 # Manastone File Memory System (MemDir) — Design
 
-**Status:** Phase 1 implemented (robot identity only)
+**Status:** Phase 1 implemented (robot identity auto-maintained + LLM-assisted auto-enrichment when available)
 
 This document is a design note shipped with the implementation.
 It is intentionally detailed so future contributors can extend the system
@@ -108,16 +108,22 @@ These caps keep the index safe to auto-inject.
 
 ## Phase 1 behavior (implemented)
 
-### What is auto-written
+### What is auto-written (always)
 
-- `robot_identity.md` (type `robot_fact`) is always created/updated on agent startup.
+- `robot_identity.md` (type `robot_fact`) is always created/updated on agent startup (and refreshed after turns).
 - A matching index entry in `MEMORY.md` is upserted.
 
-### What is *not* auto-written yet
+### What is auto-enriched (when LLM is available)
 
-- `safety_gotcha`, `procedure`, `preference`, `incident`, `service_context`
+All memory types are eligible for automatic enrichment via an LLM-assisted extractor:
 
-These will be enriched gradually via future phases.
+- `safety_gotcha`
+- `procedure`
+- `preference`
+- `incident`
+- `service_context`
+
+**Important:** when no LLM is available (no API key / budget exceeded), auto-enrichment degrades to a no-op. Identity maintenance still works.
 
 ---
 
@@ -128,19 +134,23 @@ The agent builds a compact *file-memory recall context* at query time:
 - Always includes `robot_identity.md` if present.
 - Optionally includes up to 3 additional memories selected via a simple keyword-overlap heuristic.
 
-Phase 1 intentionally avoids LLM-driven recall to keep the system offline-friendly.
+This remains offline-friendly; LLM usage is only required for **auto-writing/enrichment**, not for recall.
 
 ---
 
 ## Safety model
 
-Phase 1 uses deterministic writes only.
+We use a hybrid safety model:
 
-Future phases (LLM-assisted memory extraction) must be gated by:
+- Identity (`robot_fact`) is written deterministically by the program.
+- Auto-enrichment for other types is LLM-assisted, but **the LLM never writes files directly**.
+  Instead it outputs a structured JSON "write plan" which the program applies.
+
+LLM-assisted memory updates are gated by:
 
 1. **Structured output schemas** for proposed changes
 2. **Filename sanitization** and strict root confinement (no path traversal)
-3. **Explicit allowlist** of writable directories (memory root only)
+3. **Writes restricted to the memdir root only**
 
 This mirrors the core safety principle in Claude Code's memdir subsystem.
 
@@ -157,6 +167,11 @@ This mirrors the core safety principle in Claude Code's memdir subsystem.
 - `src/manastone/agent/file_memory.py`
   - recall context builder (rule-based)
 
+- `src/manastone/agent/memory_extractor.py`
+  - LLM-assisted extraction (structured JSON write plan)
+  - safe application of upserts/deletes under memdir root
+
 - `src/manastone/agent/agent.py`
   - ensures identity memory exists on startup
   - injects file-memory recall context into `ask()` and health report workflow
+  - runs background auto-enrichment after `ask()` and `command()` (best-effort)

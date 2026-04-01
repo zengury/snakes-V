@@ -36,6 +36,19 @@ class BackgroundObserver:
         self._cycle_started_at: Optional[str] = None
         self._cycle_counter: int = 0
 
+        # Mock-mode cycle simulation (dev/testing)
+        # In mock mode, IdleDetector is always idle=True, so no cycles occur.
+        # Enable simulated idle↔active transitions by setting:
+        #   MANASTONE_MOCK_CYCLE_TICKS=<N>
+        # Meaning: switch state every N observer ticks (interval_s each).
+        import os
+
+        try:
+            self._mock_cycle_ticks: int = int(os.getenv("MANASTONE_MOCK_CYCLE_TICKS", "0"))
+        except Exception:
+            self._mock_cycle_ticks = 0
+        self._mock_tick_counter: int = 0
+
     def start(self) -> None:
         if not self._running:
             self._running = True
@@ -57,6 +70,14 @@ class BackgroundObserver:
     async def _observe(self) -> None:
         # 0) Cycle boundary detection via idle state
         idle, idle_reason = await self._idle_detector.is_idle()
+
+        # Mock-mode cycle simulation
+        if self._agent.config.is_mock_mode() and self._mock_cycle_ticks > 0:
+            self._mock_tick_counter += 1
+            # Start in idle, then alternate every N ticks.
+            phase = (self._mock_tick_counter // self._mock_cycle_ticks) % 2
+            idle = phase == 0
+            idle_reason = "mock_cycle"
 
         if self._last_idle is None:
             # Initialize state without triggering a cycle event.
@@ -107,7 +128,7 @@ class BackgroundObserver:
                 pass
 
             try:
-                await self._agent.mem_extractor.extract_and_apply(
+                r = await self._agent.mem_extractor.extract_and_apply(
                     MemoryTurnContext(
                         robot_id=self._agent.robot_id,
                         user_text="cycle_consolidation",
@@ -116,10 +137,17 @@ class BackgroundObserver:
                         success=True,
                     )
                 )
-                self._agent.memory.record_event(
-                    "cycle_consolidated",
-                    f"cycle={self._cycle_counter} consolidated to memdir",
-                )
+                if isinstance(r, dict) and r.get("applied"):
+                    self._agent.memory.record_event(
+                        "cycle_consolidated",
+                        f"cycle={self._cycle_counter} consolidated to memdir",
+                    )
+                else:
+                    reason = r.get("reason") if isinstance(r, dict) else "unknown"
+                    self._agent.memory.record_event(
+                        "cycle_consolidation_skipped",
+                        f"cycle={self._cycle_counter} skipped (reason={reason})",
+                    )
             except Exception as e:
                 self._agent.memory.record_event(
                     "cycle_consolidation_error", str(e)[:120]

@@ -121,6 +121,10 @@ All memory types are eligible for automatic enrichment via an LLM-assisted extra
 - idle=True → idle=False starts a cycle
 - idle=False → idle=True ends a cycle and triggers consolidation
 
+**Mock-mode note:** In mock mode the idle detector is always idle by default, so no cycles occur.
+For development/testing, you can simulate cycles by setting `MANASTONE_MOCK_CYCLE_TICKS=<N>`
+which toggles idle↔active every N background observer ticks.
+
 - `safety_gotcha`
 - `procedure`
 - `preference`

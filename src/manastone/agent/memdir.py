@@ -8,7 +8,7 @@ This is inspired by Claude Code's memdir model, adapted for robots:
 
 Design goal (Phase 1):
 - Always maintain a stable "robot identity" memory (type=robot_fact).
-- Other memory types are supported but are NOT automatically written yet.
+- Other memory types are supported by the taxonomy but are NOT automatically written yet.
 
 See docs/memory-system-design.md.
 """
@@ -34,8 +34,7 @@ MEMORY_TYPES = {
     "procedure",  # runbooks / SOP
     "preference",  # operator preferences / reporting style
     "incident",  # timestamped case notes
-    # Possible future type:
-    "service_context",  # who we serve + environment + preference drift
+    "service_context",  # service objects + environment + preference drift
 }
 
 

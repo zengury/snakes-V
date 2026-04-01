@@ -26,7 +26,7 @@ This design is inspired by Claude Code's `memdir` approach, adapted for robotics
 1. **Always know who the robot is.**
    The system must maintain a stable identity memory that answers: *"Who am I?"*
 2. **Support gradual enrichment.**
-   Safety gotchas, procedures, preferences, and incidents should be addable later without redesign.
+   Safety gotchas, procedures, preferences, incidents, and service context should be addable later without redesign.
 3. **Low token cost.**
    Injecting all history is expensive and noisy. We instead recall a small set of relevant memory files.
 4. **Operational safety.**
@@ -71,15 +71,15 @@ Operator/service preferences: reporting format, risk tolerance, confirmation exp
 
 Timestamped case notes: what happened, symptoms, action taken, outcome.
 
-### 6) `service_context` (optional future)
+### 6) `service_context` (future)
 
-**Idea:** A self-model layer for the robot:
+A self-model layer for the robot's operating context:
 - Who are my service objects (operator, site, fleet, client)?
 - What are their preferences?
-- Have they changed?
+- Have they changed over time?
 - What runtime environment am I operating in?
 
-This is intentionally *not* forced-write in Phase 1.
+**Policy:** treated like all other non-identity memory types: supported by the taxonomy, but not auto-written in Phase 1.
 
 ---
 

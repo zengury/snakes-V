@@ -86,30 +86,6 @@ class ManastoneAgent:
         self.memory.record_event(
             "human_qa", f"Q: {question[:60]} A: {answer[:60]}"
         )
-
-        # Auto-extract durable memories (best-effort, non-blocking)
-        try:
-            # Keep identity up to date (e.g., env/config changes)
-            ensure_robot_identity_memory(self._storage_dir, self.robot_id, config=self.config)
-        except Exception:
-            pass
-        try:
-            import asyncio
-
-            asyncio.create_task(
-                self.mem_extractor.extract_and_apply(
-                    MemoryTurnContext(
-                        robot_id=self.robot_id,
-                        user_text=question,
-                        result_summary=answer[:400],
-                        action="ask",
-                        success=True,
-                    )
-                )
-            )
-        except Exception:
-            pass
-
         return answer
 
     async def command(self, instruction: str) -> dict:
@@ -121,29 +97,6 @@ class ManastoneAgent:
             "command_result",
             f"action={intent.get('action')}, success={result.get('success', False)}",
         )
-
-        # Auto-extract durable memories (best-effort, non-blocking)
-        try:
-            ensure_robot_identity_memory(self._storage_dir, self.robot_id, config=self.config)
-        except Exception:
-            pass
-        try:
-            import asyncio
-
-            asyncio.create_task(
-                self.mem_extractor.extract_and_apply(
-                    MemoryTurnContext(
-                        robot_id=self.robot_id,
-                        user_text=instruction,
-                        result_summary=str(result)[:800],
-                        action=str(intent.get("action", "command")),
-                        success=bool(result.get("success", False)),
-                    )
-                )
-            )
-        except Exception:
-            pass
-
         return result
 
     async def status(self) -> dict:

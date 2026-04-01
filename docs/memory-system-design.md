@@ -115,7 +115,11 @@ These caps keep the index safe to auto-inject.
 
 ### What is auto-enriched (when LLM is available)
 
-All memory types are eligible for automatic enrichment via an LLM-assisted extractor:
+All memory types are eligible for automatic enrichment via an LLM-assisted extractor.
+
+**Trigger:** the extractor runs once per robot *operating cycle* (between idle windows):
+- idle=True → idle=False starts a cycle
+- idle=False → idle=True ends a cycle and triggers consolidation
 
 - `safety_gotcha`
 - `procedure`
@@ -174,4 +178,7 @@ This mirrors the core safety principle in Claude Code's memdir subsystem.
 - `src/manastone/agent/agent.py`
   - ensures identity memory exists on startup
   - injects file-memory recall context into `ask()` and health report workflow
-  - runs background auto-enrichment after `ask()` and `command()` (best-effort)
+
+- `src/manastone/agent/background.py`
+  - detects idle transitions (cycle boundaries)
+  - triggers one memdir consolidation per cycle (best-effort)

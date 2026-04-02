@@ -46,8 +46,12 @@ class FileMemoryStore:
     def build_recall_context(self, query: str, max_chars: int = 2500) -> str:
         """Build a compact memory context block.
 
-        - Always includes robot_identity.md if available.
-        - Adds up to 3 additional best-match memories by keyword overlap.
+        Priority policy (Phase 1):
+        - Always include robot_identity.md (robot_fact).
+        - Always include safety_gotcha.md (safety_gotcha) if present.
+        - Add up to 3 additional best-match memories by keyword overlap.
+
+        Rationale: safety boundaries must never be "future".
         """
         if not self.root.exists():
             return ""
@@ -56,12 +60,19 @@ class FileMemoryStore:
         if not headers:
             return ""
 
-        # Always include identity if present.
+        # Always include identity + safety baseline if present.
         identity = [h for h in headers if h.filename == "robot_identity.md"]
+        safety = [h for h in headers if h.filename == "safety_gotcha.md"]
+
+        pinned = identity + safety
 
         # Select additional memories by simple scoring.
-        others = [h for h in headers if h.filename != "robot_identity.md"]
-        selected = identity + self._select_by_overlap(query, others, k=3)
+        others = [
+            h
+            for h in headers
+            if h.filename not in {"robot_identity.md", "safety_gotcha.md"}
+        ]
+        selected = pinned + self._select_by_overlap(query, others, k=3)
 
         parts: List[str] = []
         parts.append("=== FILE MEMORIES (persistent) ===")

@@ -55,9 +55,14 @@ Example contents:
 - kinematic chains
 - safety thresholds
 
-### 2) `safety_gotcha` (future)
+### 2) `safety_gotcha` (Phase 1: **manual + pinned recall**)
 
 Hard safety boundaries and known failure modes.
+
+**Phase 1 policy:**
+- A `safety_gotcha.md` file is **bootstrapped if missing** (template content).
+- The file is **human-maintained** thereafter (the program does not overwrite it).
+- Recall always includes it with high priority (pinned), so safety constraints are never “future”.
 
 ### 3) `procedure` (future)
 
@@ -90,7 +95,8 @@ Per-robot memory directory:
 ```
 storage/agent_memory/<robot_id>/memories/
 ├── MEMORY.md              # index (one-line hooks)
-└── robot_identity.md      # Phase 1: forced robot_fact
+├── robot_identity.md      # Phase 1: forced robot_fact
+└── safety_gotcha.md       # Phase 1: manual baseline (bootstrapped)
 ```
 
 ### `MEMORY.md` index rules
@@ -140,6 +146,7 @@ which toggles idle↔active every N background observer ticks.
 The agent builds a compact *file-memory recall context* at query time:
 
 - Always includes `robot_identity.md` if present.
+- Always includes `safety_gotcha.md` if present.
 - Optionally includes up to 3 additional memories selected via a simple keyword-overlap heuristic.
 
 This remains offline-friendly; LLM usage is only required for **auto-writing/enrichment**, not for recall.
@@ -147,6 +154,13 @@ This remains offline-friendly; LLM usage is only required for **auto-writing/enr
 ---
 
 ## Safety model
+
+### Phase 1 invariants
+
+- `robot_identity.md` is deterministic and always refreshed.
+- `safety_gotcha.md` is human-maintained and always injected (pinned).
+
+### LLM-assisted writes (Phase 2+)
 
 We use a hybrid safety model:
 
@@ -186,3 +200,19 @@ This mirrors the core safety principle in Claude Code's memdir subsystem.
 - `src/manastone/agent/background.py`
   - detects idle transitions (cycle boundaries)
   - triggers one memdir consolidation per cycle (best-effort)
+
+---
+
+## Roadmap / TODO (avoid future “memory debt”)
+
+These are intentionally written down early to prevent later patchwork:
+
+1. **Memory write protocol (Phase 2 gate):** approvals, update-vs-create rules, conflict handling.
+   See: `docs/memory-write-protocol.md`.
+
+2. **Incident retention:** monthly archive + recency bias in recall.
+
+3. **Fleet-shared memory layer:** allow a second read-only recall overlay for model/robot-family level SOPs and safety.
+   (e.g. `storage/fleet_memory/memories/**` injected before per-robot memories.)
+
+4. **Recall quality:** type priority (safety > procedure > incident > preference), recency weighting, and optional semantic fallback.

@@ -8,7 +8,9 @@ This is inspired by Claude Code's memdir model, adapted for robots:
 
 Design goal (Phase 1):
 - Always maintain a stable "robot identity" memory (type=robot_fact).
-- Other memory types are supported by the taxonomy but are NOT automatically written yet.
+- Always bootstrap a manual "safety gotchas" memory (type=safety_gotcha) if missing.
+- Other memory types are supported by the taxonomy and may be auto-enriched when LLM is available,
+  but should be treated as best-effort.
 
 See docs/memory-system-design.md.
 """
@@ -333,3 +335,47 @@ def ensure_robot_identity_memory(storage_dir: Path, robot_id: str, *, config: An
     upsert_index_entry(index_path, title=title, filename=memory_path.name, hook=hook)
 
     return memory_path
+
+
+def ensure_safety_gotcha_memory(storage_dir: Path, robot_id: str) -> Path:
+    """Ensure a manual safety_gotcha memory exists.
+
+    Phase 1 policy:
+    - Create the file if missing (template content).
+    - If it exists, do NOT overwrite (human-maintained source of truth).
+    - Always ensure an index entry exists.
+    """
+    root = get_memdir_root(storage_dir, robot_id)
+    root.mkdir(parents=True, exist_ok=True)
+
+    filename = "safety_gotcha.md"
+    path = resolve_memory_path(root, filename)
+
+    if not path.exists():
+        now = datetime.now(timezone.utc).isoformat()
+        fm: Dict[str, Any] = {
+            "type": "safety_gotcha",
+            "description": "Hard safety boundaries and known failure modes (human-maintained)",
+            "updated_at": now,
+        }
+        body = (
+            "# Safety gotchas (manual)\n\n"
+            "This file is *human-maintained* and is always injected with high priority.\n\n"
+            "## Hard boundaries\n"
+            "- [fill]\n\n"
+            "## Known failure modes\n"
+            "- [fill]\n\n"
+            "## Recovery / escalation\n"
+            "- [fill]\n"
+        )
+        path.write_text(build_frontmatter(fm) + "\n" + body, encoding="utf-8")
+
+    index_path = get_memdir_index_path(storage_dir, robot_id)
+    upsert_index_entry(
+        index_path,
+        title="Safety gotchas",
+        filename=path.name,
+        hook="Hard safety boundaries and known failure modes (read first).",
+    )
+
+    return path

@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-from manastone.agent.memdir import ensure_robot_identity_memory
+from manastone.agent.memdir import ensure_robot_identity_memory, ensure_safety_gotcha_memory
 from manastone.agent.memory_extractor import MemoryTurnContext
 from manastone.idle_tuning.agent.idle_detector import IdleDetector
 
@@ -119,11 +119,12 @@ class BackgroundObserver:
                 "Recent events (last 40):\n" + "\n".join(lines)
             )
 
-            # Refresh identity (robot_fact) and consolidate file memories
+            # Refresh identity (robot_fact) and safety baseline, then consolidate file memories
             try:
                 ensure_robot_identity_memory(
                     self._agent._storage_dir, self._agent.robot_id, config=self._agent.config
                 )
+                ensure_safety_gotcha_memory(self._agent._storage_dir, self._agent.robot_id)
             except Exception:
                 pass
 

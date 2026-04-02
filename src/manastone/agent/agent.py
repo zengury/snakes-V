@@ -4,7 +4,7 @@ from typing import Optional
 from manastone.common.config import ManaConfig
 from manastone.agent.memory import AgentMemory
 from manastone.agent.file_memory import FileMemoryStore
-from manastone.agent.memdir import ensure_robot_identity_memory
+from manastone.agent.memdir import ensure_robot_identity_memory, ensure_safety_gotcha_memory
 from manastone.agent.memory_extractor import MemDirExtractor, MemoryTurnContext
 from manastone.agent.token_budget import TokenBudget
 from manastone.agent.llm_proxy import LLMProxy
@@ -47,6 +47,7 @@ class ManastoneAgent:
         # Always maintain robot identity (robot_fact)
         try:
             ensure_robot_identity_memory(self._storage_dir, robot_id, config=self.config)
+            ensure_safety_gotcha_memory(self._storage_dir, robot_id)
         except Exception:
             # Never block agent startup on memory IO.
             pass

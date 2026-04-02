@@ -26,18 +26,26 @@ def test_agent_status():
 
 
 def test_file_memdir_identity_created():
-    """Phase 1: robot_identity.md must exist so the agent knows who it is."""
+    """Phase 1: identity + safety baseline must exist."""
     with tempfile.TemporaryDirectory() as tmpdir:
         agent = make_agent(tmpdir)
         mem_root = Path(tmpdir) / "agent_memory" / "test_robot" / "memories"
         identity = mem_root / "robot_identity.md"
+        safety = mem_root / "safety_gotcha.md"
         index = mem_root / "MEMORY.md"
 
         assert identity.exists()
+        assert safety.exists()
         assert index.exists()
+
         assert "type: robot_fact" in identity.read_text()
         assert "robot_id: test_robot" in identity.read_text()
+
+        assert "type: safety_gotcha" in safety.read_text()
+        assert "human-maintained" in safety.read_text().lower()
+
         assert "robot_identity.md" in index.read_text()
+        assert "safety_gotcha.md" in index.read_text()
 
 
 def test_agent_teach():

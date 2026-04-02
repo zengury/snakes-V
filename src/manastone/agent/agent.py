@@ -8,6 +8,7 @@ from manastone.common.config import ManaConfig
 from manastone.agent.memory import AgentMemory
 from manastone.agent.file_memory import FileMemoryStore
 from manastone.agent.memdir import ensure_robot_identity_memory
+from manastone.agent.memory_extractor import MemDirExtractor, MemoryTurnContext
 from manastone.agent.token_budget import TokenBudget
 from manastone.agent.llm_proxy import LLMProxy
 from manastone.agent.event_sink import AgentEventSink
@@ -43,16 +44,20 @@ class ManastoneAgent:
 
         # Core components
         self.memory = AgentMemory(robot_id, self._storage_dir)
+        self.token_budget = TokenBudget(daily_budget)
+        self.llm_proxy = LLMProxy(self.memory, self.token_budget, self.config)
 
-        # File-based persistent memory (Phase 1: identity only)
+        # File-based persistent memory
         self.file_memory = FileMemoryStore(robot_id, self._storage_dir)
+        self.mem_extractor = MemDirExtractor(robot_id, self._storage_dir, self.llm_proxy)
+
+        # Always maintain robot identity (robot_fact)
         try:
             ensure_robot_identity_memory(self._storage_dir, robot_id, config=self.config)
         except Exception:
             # Never block agent startup on memory IO.
             pass
-        self.token_budget = TokenBudget(daily_budget)
-        self.llm_proxy = LLMProxy(self.memory, self.token_budget, self.config)
+
         self.event_sink = AgentEventSink(self.memory)
         self.intent_parser = IntentParser(self.llm_proxy)
         self.workflows = WorkflowEngine(self)

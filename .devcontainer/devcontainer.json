@@ -1,0 +1,42 @@
+{
+  "name": "Manastone — snakes-V",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  "postCreateCommand": "pip install -e '.[dev]'",
+
+  "containerEnv": {
+    "MANASTONE_MOCK_MODE": "true",
+    "MANASTONE_SCHEMA_PATH": "/workspaces/snakes-V/config/robot_schema.yaml"
+  },
+
+  "forwardPorts": [8090],
+  "portsAttributes": {
+    "8090": {
+      "label": "Manastone Agent Gateway",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}

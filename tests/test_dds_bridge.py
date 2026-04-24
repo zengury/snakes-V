@@ -80,6 +80,21 @@ class TestMockDDSBridge:
 # ---------------------------------------------------------------------------
 
 
+
+
+def test_real_call_service_raises_if_disconnected():
+    """Real bridge should fail fast if call_service is used before connect()."""
+    from manastone.runtime.dds_bridge import DDSConnectionLostError, RealDDSBridge
+
+    bridge = RealDDSBridge()
+
+    async def _run() -> None:
+        with pytest.raises(DDSConnectionLostError):
+            await bridge.call_service("/set_param", {"name": "kp", "value": 10.0})
+
+    asyncio.run(_run())
+
+
 class TestJointRingBuffer:
     def test_append_and_get_latest(self):
         buf = JointRingBuffer("left_knee", max_duration_s=30.0, sample_rate=50.0)
